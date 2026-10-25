@@ -15,7 +15,7 @@
 ; ============================================================================
 
 #define NomeApp     "Fechamento para Gráfica (CorelDRAW)"
-#define VersaoApp   "1.0.0"
+#define VersaoApp   "1.1.0"
 #define ArquivoGMS  "FechamentoGrafica.gms"
 
 [Setup]

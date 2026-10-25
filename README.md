@@ -4,7 +4,7 @@ Macro para **CorelDRAW** (VBA) que prepara o documento aberto para envio à grá
 
 O arquivo original **nunca é alterado**: o fechamento é feito numa cópia `nome_FECHADO.cdr`.
 
-> **Status:** em uso real, testado com **CorelDRAW Graphics Suite 2022** no Windows. Outras versões podem funcionar, mas ainda não foram validadas (veja [Limitações](#limitações-conhecidas)).
+> **Status:** em uso real. Testado com **CorelDRAW Graphics Suite 2022** no Windows e validado em 5 catálogos reais (de 8 a 26 páginas): 0 erros, 0 objetos perdidos e 0 sombras sem separar. Outras versões do Corel podem funcionar, mas ainda não foram validadas (veja [Limitações](#limitações-conhecidas)).
 
 ---
 
@@ -30,6 +30,14 @@ O arquivo original **nunca é alterado**: o fechamento é feito numa cópia `nom
 | **Relatório** | Resumo com pendências em destaque e log completo por página (opcionalmente salvo em `.txt`). |
 
 A janela de opções e a janela de **progresso** (página X de Y, tempo decorrido e restante estimado, botão *Parar*) são um formulário do VBA.
+
+---
+
+## Requisitos
+
+- Windows
+- CorelDRAW Graphics Suite (testado na **2022**) com o **componente VBA** instalado
+- Permissão de administrador para usar o instalador (ele grava em `Program Files`)
 
 ---
 
@@ -98,23 +106,30 @@ As opções ficam no início do módulo `FechamentoGraficaPro.bas` (constantes `
 ```
 .
 ├── src/
-│   ├── FechamentoGraficaPro.bas   # módulo principal (macro FecharDocumentoAtivo)
+│   ├── FechamentoGraficaPro.bas   # módulo principal (FecharDocumentoAtivo e MapearDocumento)
 │   ├── frmFechamento.frm          # formulário (opções + progresso)
 │   └── frmFechamento.frx          # recursos binários do formulário (manter junto do .frm)
 ├── dist/
 │   ├── FechamentoGrafica.gms      # projeto de macros empacotado pelo instalador
 │   ├── icone.ico                  # ícone do instalador e do botão
 │   └── MeuBotao.cdws              # área de trabalho com o botão personalizado
-├── dist_setup/                    # saída do instalador (não versionar o .exe; use Releases)
-├── Arquivos_auxiliares/
-│   └── MapearDocumento.bas        # ferramenta de desenvolvimento (mapeia objetos e efeitos em CSV)
-└── FechamentoGrafica.iss          # script do Inno Setup 6
+├── dist_setup/                    # saída do instalador (não versionado; o .exe vai em Releases)
+├── FechamentoGrafica.iss          # script do Inno Setup 6
+├── LICENSE
+└── README.md
 ```
 
-### Ferramentas de desenvolvimento
+---
 
-- **`DiagnosticoEfeitos`** (dentro do módulo principal): selecione objetos e execute para listar tipo, preenchimento, transparência, sombra e números de efeito. O resultado vai para `%TEMP%\diagnostico_corel.txt`.
-- **`MapearDocumento`** (`Arquivos_auxiliares/`): percorre o documento inteiro e grava um CSV (`%TEMP%\mapa_objetos.csv`) com tipo, preenchimento, contorno, transparência, efeitos, modelo de cor, sobreposição e posição de cada objeto. Útil para descobrir como o Corel representa cada recurso e para comparar o arquivo antes e depois do fechamento.
+## Ferramenta de mapeamento
+
+A macro **`MapearDocumento`** faz parte do módulo principal e aparece no Gerenciador de macros junto com `FecharDocumentoAtivo`. Ela percorre o documento aberto (todas as páginas, camadas, grupos e PowerClips) e grava um CSV em `%TEMP%\mapa_objetos.csv`, separado por ponto e vírgula, com uma linha por objeto:
+
+`pagina; camada; nivel; nome; tipo; preenchimento; contorno; transparencia; efeitos; powerclip; oculto; bloqueado; bitmap_modo; largura_mm; altura_mm; cor_preench; cor_contorno; overprint_preench; overprint_contorno`
+
+Serve para descobrir como o Corel representa cada recurso (números de tipo de objeto e de efeito) e para **comparar o arquivo antes e depois do fechamento**: rode no original e no `_FECHADO` e compare os dois CSV. Dica: dê nomes aos objetos de teste no Gerenciador de Objetos para reconhecer as linhas. Abra o CSV no Excel com *Dados > Texto para colunas*, separador ponto e vírgula.
+
+O fechamento também registra no log todo tipo de objeto especial que encontra (linhas que começam com `*`).
 
 ---
 
@@ -122,11 +137,16 @@ As opções ficam no início do módulo `FechamentoGraficaPro.bas` (constantes `
 
 ### Gerar o instalador
 
-1. Atualize `dist/FechamentoGrafica.gms` com a versão mais recente do projeto de macros. O arquivo fica em `C:\Program Files\Corel\<versão>\Draw\GMS\` quando o projeto é criado no Corel.
-2. Abra `FechamentoGrafica.iss` no **Inno Setup 6** e use *Build > Compile*.
-3. O instalador é gerado em `dist_setup/`.
+1. Atualize `dist/FechamentoGrafica.gms` com a versão mais recente do projeto de macros. Com o Corel fechado, copie o arquivo de `C:\Program Files\Corel\<versão>\Draw\GMS\`.
+2. Atualize `VersaoApp` no `FechamentoGrafica.iss` (mantenha o `AppId` para que o instalador atualize versões já instaladas).
+3. Abra `FechamentoGrafica.iss` no **Inno Setup 6** e use *Build > Compile*.
+4. O instalador é gerado em `dist_setup/`. Publique-o em **Releases**, não no repositório.
 
 O `.gms` só pode ser gerado pelo CorelDRAW (é um projeto VBA binário). Ele deve ser criado na **menor versão do Corel** que se deseja suportar.
+
+### Codificação dos arquivos
+
+Os arquivos `.bas` e `.frm` são gravados em **ANSI (Windows-1252)** com quebras de linha do Windows (CRLF), como o VBA espera. Evite editá-los em programas que convertam para UTF-8 ou para LF. O `.gitattributes` do repositório mantém as quebras de linha corretas. Os textos com acento dentro do módulo entram por código (`ChrW`), de modo que o arquivo `.bas` pode ser tratado como ASCII.
 
 ### Como a macro trata sombras
 
@@ -138,9 +158,10 @@ Em testes, `Shape.Separate` não separou a sombra. O método que funcionou foi `
 
 - **Versão do Corel:** testado apenas no CorelDRAW Graphics Suite 2022. Um `.gms` criado numa versão nova pode não abrir em versões mais antigas.
 - **Requer o componente VBA** do CorelDRAW instalado.
-- **Efeitos que persistem:** em testes, três efeitos (tipos 1, 9 e 0 no Corel utilizado) continuaram registrados em objetos depois da conversão em curvas, sem diferença visual aparente. Ainda não foram identificados.
-- **Objetos de efeito viram bitmap** quando o `ConvertToCurves` não funciona via VBA (extrusão, mistura, contorno etc. nos testes). O resultado é bom, mas deixa de ser vetorial.
+- **Objetos de efeito viram bitmap** quando o `ConvertToCurves` não funciona via VBA (extrusão, mistura, contorno etc. nos testes). O resultado é bom, mas deixa de ser vetorial. Num catálogo com muitos efeitos (arquitetura), 75 objetos foram para bitmap a 1200 dpi.
+- **Efeitos não identificados:** num arquivo de teste, três efeitos (tipos 1, 9 e 0) continuaram registrados em objetos depois da conversão em curvas, sem diferença visual aparente. Eles não apareceram nos catálogos reais.
 - **Cores especiais** são sempre convertidas para CMYK; **sobreposição (overprint)** é mantida, não alterada.
+- **Imagens de baixa resolução** são apenas avisadas (abaixo de 150 dpi); a macro não melhora a imagem.
 - Em objetos muito grandes ou na exportação do PDF, a janela de progresso não atualiza até o fim da operação do Corel.
 - A macro **não substitui a conferência no Preflight** do Acrobat (Output Preview) antes de enviar à gráfica.
 
@@ -148,11 +169,18 @@ Em testes, `Shape.Separate` não separou a sombra. O método que funcionou foi `
 
 ## Roteiro
 
-- Identificar os efeitos persistentes (1, 9 e 0) e tratá-los.
 - Tentar preservar o vetor em mais objetos de efeito (separar e desagrupar antes de rasterizar).
 - Opção para remover sobreposição (overprint).
 - Criação automática do botão com ícone via API do Corel.
 - Validação em outras versões do CorelDRAW.
+- Assinatura digital do instalador.
+
+---
+
+## Histórico de versões
+
+- **v1.1.0** – Tratamento de objetos de efeito, código de barras e linhas de dimensão; remoção de objetos ocultos e dos "originais" vazios; texto de dimensão em segunda tentativa; mapeamento (`MapearDocumento`) incorporado ao módulo principal; `DiagnosticoEfeitos` removida.
+- **v1.0.0** – Primeira versão: fechamento do documento ativo, separação de sombras, CMYK, PDF/X-3 com sangria e marcas de corte, janela de opções e progresso, instalador.
 
 ---
 
@@ -162,4 +190,4 @@ Esta ferramenta altera o documento aberto de forma **destrutiva** (curvas, bitma
 
 ## Licença
 
-MIT.
+MIT. Veja o arquivo [LICENSE](LICENSE).

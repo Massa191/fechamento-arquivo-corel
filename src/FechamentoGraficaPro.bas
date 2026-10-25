@@ -1,34 +1,12 @@
 Attribute VB_Name = "FechamentoGraficaPro"
 Option Explicit
 '==============================================================================
-' FECHAMENTO DO DOCUMENTO ATIVO PARA GRAFICA - VERSAO 12
+' FECHAMENTO DO DOCUMENTO ATIVO PARA GRAFICA - VERSAO 1.1.0
 '------------------------------------------------------------------------------
-' Execute a macro:  FecharDocumentoAtivo
-'
-' Novidades da v12:
-'   - Depois de tratar um objeto de efeito (ex.: midia artistica), remove a
-'     curva/retangulo VAZIO (sem preenchimento e sem contorno) que sobra do
-'     original
-'   - Texto que nao converte na primeira tentativa (ex.: texto de linha de
-'     dimensao) e tentado de novo no fim da camada, depois que o resto foi
-'     convertido
-'
-' Novidades da v11:
-'   - Objetos de EFEITO (extrusao, mistura, contorno, chanfradura, sombra de
-'     bloco, midia artistica, envelope...), codigo de barras e linhas de
-'     dimensao: sao convertidos em CURVAS (vetor preservado); se a conversao
-'     nao funcionar, viram bitmap CMYK em alta resolucao. O log mostra qual
-'     caminho foi usado para cada tipo.
-'   - Objetos bloqueados sao desbloqueados antes de processar
-'   - Aviso quando um texto continua como texto apos a conversao
-'
-' Novidades da v10:
-'   - Janela unica de opcoes + janela de PROGRESSO (barra, pagina X de Y,
-'     tempo decorrido/restante, botao Parar). Usa o formulario "frmFechamento"
-'     (criado pela macro CriarFormularioFechamento do arquivo CriarFormulario.bas).
-'     Se o formulario nao existir, o script usa as caixas de dialogo simples.
-'   - Se NAO for salvar o CDR, a copia de seguranca vai para a pasta TEMP
-'     (nada novo aparece na pasta do trabalho)
+' Execute a macro:  FecharDocumentoAtivo para fechar o documento ativo.
+' Execute a macro:  MapearDocumento para gerar um CSV com os objetos e efeitos do documento.
+'------------------------------------------------------------------------------
+' o Maeamento serve para analisar os efeitos que não estão sendo convertidos, e desenvolver a macro para tratar esses casos.
 '
 ' O original em disco nunca e alterado.
 '==============================================================================
@@ -119,6 +97,10 @@ Private pBitNaoCMYK As Long, pBaixaRes As Long, pOcultos As Long, pFora As Long
 Private pEfeitosN As Long, pEfeitos As String, pTopo As Long, pEspecial As Long
 Private pExcesso As Double, pW As Double, pH As Double
 
+' mapeamento de efeitos (usado em desenvolvimento)
+Private f As Integer
+Private nLinhas As Long
+
 '==============================================================================
 ' ACENTOS (o arquivo .bas e ASCII; os acentos entram por codigo)
 '==============================================================================
@@ -190,7 +172,7 @@ Public Sub FecharDocumentoAtivo()
     logTemp = Environ("TEMP") & "\fechamento_log.txt"
     logArq = FreeFile
     Open logTemp For Output As #logArq
-    Print #logArq, "Fechamento (v12) iniciado em " & Now
+    Print #logArq, "Fechamento (v.1.1.0) iniciado em " & Now
     Print #logArq, "Documento: " & doc.Name
     If outCdr <> "" Then Print #logArq, "Trabalhando em: " & outCdr
 
@@ -1901,94 +1883,172 @@ Private Sub PreShape(s As Shape, ByVal topo As Boolean)
 End Sub
 
 '==============================================================================
-' DIAGNOSTICO (mantido para rastrear novas necessidades)
-' Selecione um ou mais objetos, va ao editor do VBA, clique dentro de
-' DiagnosticoEfeitos e pressione F5. Resultado completo em
-' %TEMP%\diagnostico_corel.txt
+' MAPEAMENTO DE OBJETOS E EFEITOS (uso em desenvolvimento)
+'------------------------------------------------------------------------------
+' Percorre o documento ATIVO (todas as paginas, camadas, grupos e PowerClips)
+' e grava uma linha por objeto em  %TEMP%\mapa_objetos.csv  (separador ;)
+' Colunas: pagina; camada; nivel; nome; tipo; preenchimento; contorno;
+'          transparencia; efeitos; powerclip; oculto; bloqueado; bitmap_modo;
+'          largura_mm; altura_mm; cor_preench; cor_contorno; overprint_preench;
+'          overprint_contorno
+' (cor_* mostra o modelo de cor: CMYK, RGB ou "tipoN" para outros, como cores
+'  especiais; "-" = sem cor uniforme/degrade; "?" = nao foi possivel ler)
+'
+' USO PARA VALIDAR O FECHAMENTO: rode esta macro no arquivo ANTES e no arquivo
+' _FECHADO depois, e compare os dois CSV.
+' Valores -1 = o Corel nao informou (propriedade nao se aplica ao objeto).
+'
+' DICA: de um NOME a cada objeto de teste no Gerenciador de Objetos (por
+' exemplo "01-Mistura", "02-Contorno") para reconhecer cada linha no CSV.
+' Abra o CSV no Excel (Dados > Texto para colunas, separador ponto e virgula).
 '==============================================================================
-Private Function NomeTipoShape(t As Long) As String
-    Select Case t
-        Case 1: NomeTipoShape = "retangulo"
-        Case 2: NomeTipoShape = "elipse"
-        Case 3: NomeTipoShape = "curva"
-        Case 4: NomeTipoShape = "poligono"
-        Case 5: NomeTipoShape = "bitmap"
-        Case 6: NomeTipoShape = "texto"
-        Case 7: NomeTipoShape = "grupo"
-        Case Else: NomeTipoShape = "outro"
-    End Select
-End Function
 
-Private Function DescreverShape(s As Shape, nivel As Long) As String
-    Dim r As String, ind As String, i As Long, n As Long
-    Dim tp As Long, ft As Long, filhos As Long, pc As Object
+Public Sub MapearDocumento()
+    Dim pg As Page, lyr As Layer, arq As String, ehGuia As Boolean
 
-    ind = String(nivel * 4, " ")
-    On Error Resume Next
-
-    tp = -1
-    tp = s.Type
-    ft = -1
-    ft = s.Fill.Type
-    Err.Clear
-    Set pc = Nothing
-    Set pc = s.PowerClip
-    Err.Clear
-    n = 0
-    n = s.Effects.Count
-    Err.Clear
-
-    r = ind & "Objeto: tipo=" & tp & " (" & NomeTipoShape(tp) & ")"
-    r = r & ", preenchimento=" & ft
-    r = r & ", transparencia=" & IIf(TemTransparencia(s), "SIM", "nao")
-    r = r & ", sombra=" & IIf(TemSombra(s), "SIM", "nao")
-    r = r & ", oculto=" & IIf(EstaOculto(s), "SIM", "nao")
-    r = r & ", powerclip=" & IIf(pc Is Nothing, "nao", "SIM")
-    r = r & ", tabela=" & IIf(EhTabela(s, tp), "SIM", "nao")
-    r = r & ", efeitos=" & n & vbCrLf
-
-    For i = 1 To n
-        r = r & ind & "    efeito " & i & " tipo=" & s.Effects(i).Type & vbCrLf
-        Err.Clear
-    Next i
-
-    If tp = cdrGroupShape And nivel < 2 Then
-        filhos = 0
-        filhos = s.Shapes.Count
-        r = r & ind & "  (grupo com " & filhos & " filhos)" & vbCrLf
-        For i = 1 To filhos
-            If i > 10 Then
-                r = r & ind & "  ..." & vbCrLf
-                Exit For
-            End If
-            r = r & DescreverShape(s.Shapes(i), nivel + 1)
-        Next i
-    End If
-
-    DescreverShape = r
-End Function
-
-Public Sub DiagnosticoEfeitos()
-    Dim k As Long, msg As String, arq As String, f As Integer
-
-    If ActiveSelectionRange.Count = 0 Then
-        MsgBox "Selecione um objeto primeiro."
+    If Application.Documents.Count = 0 Then
+        MsgBox "Abra o documento de teste primeiro.", vbExclamation
         Exit Sub
     End If
 
-    For k = 1 To ActiveSelectionRange.Count
-        msg = msg & "[" & k & "] " & DescreverShape(ActiveSelectionRange(k), 0)
-    Next k
-
-    arq = Environ("TEMP") & "\diagnostico_corel.txt"
-    On Error Resume Next
+    ActiveDocument.Unit = cdrMillimeter
+    arq = Environ("TEMP") & "\mapa_objetos.csv"
     f = FreeFile
     Open arq For Output As #f
-    Print #f, msg
-    Close #f
-    On Error GoTo 0
+    Print #f, "pagina;camada;nivel;nome;tipo;preenchimento;contorno;transparencia;" & _
+              "efeitos;powerclip;oculto;bloqueado;bitmap_modo;largura_mm;altura_mm;" & _
+              "cor_preench;cor_contorno;overprint_preench;overprint_contorno"
+    nLinhas = 0
 
-    MsgBox Left(msg, 900) & vbCrLf & "(texto completo em: " & arq & ")"
+    For Each pg In ActiveDocument.Pages
+        For Each lyr In pg.Layers
+            ehGuia = False
+            On Error Resume Next
+            ehGuia = lyr.IsGuidesLayer
+            Err.Clear
+            On Error GoTo 0
+            If Not ehGuia Then MapearShapes lyr.Shapes, pg.Index, lyr.Name, 0
+        Next lyr
+    Next pg
+    Close #f
+
+    On Error Resume Next
+    If MsgBox(nLinhas & " objetos mapeados." & vbCrLf & vbCrLf & "Arquivo: " & arq & vbCrLf & vbCrLf & _
+              "Abrir o CSV agora?", vbYesNo + vbInformation) = vbYes Then
+        Shell "explorer.exe """ & arq & """", vbNormalFocus
+    End If
 End Sub
 
+Private Sub MapearShapes(ByVal shs As Shapes, ByVal pag As Long, ByVal camada As String, ByVal nivel As Long)
+    Dim s As Shape, tp As Long, pc As Object
+    On Error Resume Next
+    For Each s In shs
+        tp = -1
+        tp = s.Type
+        Set pc = Nothing
+        Set pc = s.PowerClip
+        Err.Clear
+        EscreverLinha s, tp, Not (pc Is Nothing), pag, camada, nivel
+        If nivel < 6 Then
+            If tp = cdrGroupShape Then MapearShapes s.Shapes, pag, camada, nivel + 1
+            If Not pc Is Nothing Then MapearShapes s.PowerClip.Shapes, pag, camada, nivel + 1
+        End If
+    Next s
+End Sub
 
+Private Sub EscreverLinha(s As Shape, ByVal tp As Long, ByVal temPC As Boolean, _
+                          ByVal pag As Long, ByVal camada As String, ByVal nivel As Long)
+    Dim nome As String, ft As Long, ot As Long, tr As Long, n As Long, i As Long
+    Dim efs As String, o As Object, v As Variant, ocu As String, blq As String
+    Dim bm As Long, w As Double, h As Double, tro As Object
+    Dim ovf As String, ovo As String
+
+    On Error Resume Next
+    nome = ""
+    nome = s.Name
+    nome = Replace(Replace(nome, ";", ","), vbCrLf, " ")
+    Err.Clear
+
+    ft = -1: ft = s.Fill.Type: Err.Clear
+    ot = -1: ot = s.Outline.Type: Err.Clear
+
+    tr = -1
+    Set tro = Nothing
+    Set tro = s.Transparency
+    If Not tro Is Nothing Then tr = tro.Type
+    Err.Clear
+
+    efs = ""
+    n = 0
+    n = s.Effects.Count
+    Err.Clear
+    For i = 1 To n
+        v = -1
+        v = s.Effects(i).Type
+        efs = efs & IIf(efs = "", "", ",") & v
+        Err.Clear
+    Next i
+
+    Set o = s
+    ocu = "nao"
+    v = True
+    v = o.Visible
+    If Err.Number = 0 Then If v = False Then ocu = "SIM"
+    Err.Clear
+    blq = "nao"
+    v = False
+    v = o.Locked
+    If Err.Number = 0 Then If v = True Then blq = "SIM"
+    Err.Clear
+
+    bm = -1
+    If tp = cdrBitmapShape Then bm = s.Bitmap.Mode
+    Err.Clear
+    w = 0: h = 0
+    w = s.SizeWidth: h = s.SizeHeight
+    Err.Clear
+
+    ovf = "?": ovo = "?"
+    v = Empty
+    v = o.OverprintFill
+    If Err.Number = 0 Then ovf = IIf(v = True, "SIM", "nao")
+    Err.Clear
+    v = Empty
+    v = o.OverprintOutline
+    If Err.Number = 0 Then ovo = IIf(v = True, "SIM", "nao")
+    Err.Clear
+
+    Print #f, pag & ";" & camada & ";" & nivel & ";" & nome & ";" & tp & ";" & ft & ";" & ot & ";" & _
+              tr & ";" & efs & ";" & IIf(temPC, "SIM", "nao") & ";" & ocu & ";" & blq & ";" & bm & ";" & _
+              Format(w, "0.0") & ";" & Format(h, "0.0") & ";" & _
+              NomeCor(s, True) & ";" & NomeCor(s, False) & ";" & ovf & ";" & ovo
+    nLinhas = nLinhas + 1
+End Sub
+
+' Modelo de cor do preenchimento (preench=True) ou do contorno
+Private Function NomeCor(s As Shape, ByVal preench As Boolean) As String
+    Dim ct As Long, ft As Long
+    NomeCor = "-"
+    On Error Resume Next
+    ct = -1
+    If preench Then
+        ft = -1
+        ft = s.Fill.Type
+        If ft = cdrUniformFill Then
+            ct = s.Fill.UniformColor.Type
+        ElseIf ft = cdrFountainFill Then
+            ct = s.Fill.Fountain.StartColor.Type
+        Else
+            Exit Function
+        End If
+    Else
+        If s.Outline.Type = cdrNoOutline Then Exit Function
+        ct = s.Outline.Color.Type
+    End If
+    If Err.Number <> 0 Or ct = -1 Then NomeCor = "?": Err.Clear: Exit Function
+    Select Case ct
+        Case cdrColorCMYK: NomeCor = "CMYK"
+        Case cdrColorRGB: NomeCor = "RGB"
+        Case Else: NomeCor = "tipo" & ct
+    End Select
+End Function
