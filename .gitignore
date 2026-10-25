@@ -1,0 +1,26 @@
+# Saída do instalador (publique o .exe em Releases, não no repositório)
+dist_setup/
+
+# Arquivos de teste e de saída do fechamento (podem conter material de clientes)
+*.cdr
+*.pdf
+*_FECHADO.*
+mapa_objetos.csv
+diagnostico_corel.txt
+fechamento_log.txt
+teste_sombra.txt
+
+# Backups e temporários (Corel, VBA, editores)
+*.bak
+*.tmp
+~*
+*.gms.bak
+Backup_of_*
+
+# Lixo do Windows
+Thumbs.db
+desktop.ini
+
+# Editores / IDEs
+.vscode/
+.idea/
